@@ -1,26 +1,10 @@
-#define WIN32_LEAN_AND_MEAN
-#include <Windows.h>
+#include "common.h"
+#include "error.h"
+#include "getopt.h"
+
 #include <Shlwapi.h>
 #include <stdio.h>
 #include <string>
-#include <memory>
-
-#define LONG_MAX_PATH 32768
-
-__declspec(noreturn) static void WlnAbortWithReason(const wchar_t* fmt, ...);
-__declspec(noreturn) static void WlnAbortWithWin32Error(int err, const wchar_t* fmt, ...);
-__declspec(noreturn) static void WlnAbortWithArgumentError(const wchar_t* fmt, ...);
-
-static const std::wstring& WlnGetProgName() {
-	static std::wstring fn = []()->auto {
-		wchar_t fn[LONG_MAX_PATH];
-		if(!GetModuleFileNameW(nullptr, fn, std::extent<decltype(fn)>::value)) {
-			WlnAbortWithWin32Error(GetLastError(), L"Failed to determine launch path.");
-		}
-		return std::wstring{wcsrchr(fn, L'\\') + 1};
-	}();
-	return fn;
-}
 
 __declspec(noreturn) static void WlnAbortWithUsage() {
 	fwprintf(stderr, L"Usage: %ls [option]... <target> <link>\r\n"
@@ -34,113 +18,6 @@ __declspec(noreturn) static void WlnAbortWithUsage() {
 		             L"  -h, --help         display this help\r\n"
 		, WlnGetProgName().c_str());
 	exit(0);
-}
-
-__declspec(noreturn) static void WlnAbortWithArgumentError(const wchar_t* fmt, ...) {
-	fwprintf(stderr, L"%ls: ", WlnGetProgName().c_str());
-	va_list ap;
-	va_start(ap, fmt);
-	vfwprintf(stderr, fmt, ap);
-	va_end(ap);
-	fwprintf(stderr, L"\r\nTry `%ls --help' for more information.\r\n", WlnGetProgName().c_str());
-	exit(1);
-}
-
-template <typename T>
-static void _heapFree(T* ptr) {
-	HeapFree(GetProcessHeap(), 0, ptr);
-}
-
-__declspec(noreturn) static void WlnAbortWithReason(const wchar_t* fmt, ...) {
-	va_list ap;
-	va_start(ap, fmt);
-	vfwprintf(stderr, fmt, ap);
-	va_end(ap);
-
-	exit(1);
-}
-
-__declspec(noreturn) static void WlnAbortWithWin32Error(int err, const wchar_t* fmt, ...) {
-	std::unique_ptr<wchar_t, void(*)(wchar_t*)> buf(nullptr, _heapFree<wchar_t>);
-	if(err) {
-		wchar_t* b = nullptr;
-		FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, (LPWSTR)&b, 1024, nullptr);
-		buf.reset(b);
-	}
-	if(fmt) {
-		va_list ap;
-		va_start(ap, fmt);
-		vfwprintf(stderr, fmt, ap);
-		va_end(ap);
-	}
-	if(buf) {
-		fwprintf(stderr, L"Error 0x%8.08X: %ls", err, buf.get()); // FormatMessageW emits \r\n
-	}
-
-	exit(1);
-}
-
-struct option {
-	const wchar_t* name;
-	wchar_t shopt;
-	bool has_arg;
-};
-
-static int getopt_long(int argc, wchar_t** argv, const option opts[], int* idxptr, wchar_t** optargptr) {
-	int& idx = *idxptr;
-	if(idx == 0) idx = 1; // skip progname
-
-	int fa = idx;
-	for(; fa < argc && argv[fa][0] != L'-'; ++fa);
-
-	if(fa == argc) {
-		return -1; // no more args, we're done!
-	}
-
-	// found the first argument.
-	wchar_t* arg = argv[fa];
-	const option* foundopt = nullptr;
-	wchar_t* foundarg = nullptr;
-	int start = 1 + static_cast<int>(arg[1] == L'-');
-	wchar_t* eq = start == 2 ? wcschr(arg, L'=') : nullptr;
-	int arglen = eq ? eq - arg - start : wcslen(arg) - start;
-
-	for(const option* o = opts; o; ++o) {
-		if(o->name == nullptr) {
-			break; // arg not found! opterr?
-		}
-
-		if((start == 1 && (arg[start] != o->shopt || arg[start + 1] != L'\0'))
-		|| (start == 2 && wcsncmp(o->name, arg + start, arglen) != 0)) {
-			continue; // next arg
-		}
-
-		if(start == 2 && eq) {
-			if(!o->has_arg) break;
-			foundarg = arg + (start + arglen + 1); // account for -- and =
-		} else if(o->has_arg) {
-			int argpos = fa + 1;
-			if(argpos >= argc) {
-				break; // arg missing arg: opterr?
-			}
-			foundarg = argv[argpos];
-		}
-		foundopt = o;
-		break;
-	}
-
-	// "1 -a 2" -> "-a 2 1"
-	// move everything between idx and fa (or fa+1) over end of fa.
-	int nnonargs = fa - idx; // num non args
-	memmove(argv + fa + 1 + static_cast<int>(foundarg && !eq) - nnonargs, argv + idx, nnonargs * sizeof(wchar_t*));
-	argv[idx] = arg; ++idx;
-	if(foundarg && !eq) {
-		argv[idx] = foundarg;
-		++idx;
-	}
-
-	if(optargptr) *optargptr = foundarg;
-	return foundopt ? foundopt->shopt : L'?';
 }
 
 static option opts[]{
