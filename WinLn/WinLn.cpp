@@ -1,8 +1,28 @@
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
+#include <Shlwapi.h>
 #include <stdio.h>
+#include <string>
+#include <memory>
 
-static void usage(wchar_t* pname) {
+#define LONG_MAX_PATH 32768
+
+__declspec(noreturn) static void WlnAbortWithReason(const wchar_t* fmt, ...);
+__declspec(noreturn) static void WlnAbortWithWin32Error(int err, const wchar_t* fmt, ...);
+__declspec(noreturn) static void WlnAbortWithArgumentError(const wchar_t* fmt, ...);
+
+static const std::wstring& WlnGetProgName() {
+	static std::wstring fn = []()->auto {
+		wchar_t fn[LONG_MAX_PATH];
+		if(!GetModuleFileNameW(nullptr, fn, std::extent<decltype(fn)>::value)) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to determine launch path.");
+		}
+		return std::wstring{wcsrchr(fn, L'\\') + 1};
+	}();
+	return fn;
+}
+
+__declspec(noreturn) static void WlnAbortWithUsage() {
 	fwprintf(stderr, L"Usage: %ls [option]... <target> <link>\r\n"
 		             L"\r\n"
 		             L"  -s, --symbolic     create symbolic links instead of hard links\r\n"
@@ -12,26 +32,52 @@ static void usage(wchar_t* pname) {
 		             L"  -r, --relative     create symbolic links relative to link location\r\n"
 		             L"  -f, --force        remove existing destination files\r\n"
 		             L"  -h, --help         display this help\r\n"
-		, pname);
+		, WlnGetProgName().c_str());
+	exit(0);
 }
 
-template <typename... Args>
-static void argerr(wchar_t* const pname, const wchar_t* err, Args&&... args) {
-	fwprintf(stderr, L"%ls: ", pname);
-	fwprintf(stderr, err, args...);
-	fwprintf(stderr, L"\r\nTry `%ls --help' for more information.\r\n", pname);
+__declspec(noreturn) static void WlnAbortWithArgumentError(const wchar_t* fmt, ...) {
+	fwprintf(stderr, L"%ls: ", WlnGetProgName().c_str());
+	va_list ap;
+	va_start(ap, fmt);
+	vfwprintf(stderr, fmt, ap);
+	va_end(ap);
+	fwprintf(stderr, L"\r\nTry `%ls --help' for more information.\r\n", WlnGetProgName().c_str());
+	exit(1);
 }
 
-template <typename... Args>
-static int exit_last_error(const wchar_t* fmt, Args&&... args) {
-	wchar_t* buf;
-	auto gle = GetLastError();
-	FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, nullptr, gle, 0, (LPWSTR)&buf, 1024, nullptr);
-	fwprintf(stderr, L"While ");
-	fwprintf(stderr, fmt, args...);
-	fwprintf(stderr, L", encountered error %8.08x: %ls\r\n", gle, buf);
-	HeapFree(GetProcessHeap(), 0, buf);
-	return 1;
+template <typename T>
+static void _heapFree(T* ptr) {
+	HeapFree(GetProcessHeap(), 0, ptr);
+}
+
+__declspec(noreturn) static void WlnAbortWithReason(const wchar_t* fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	vfwprintf(stderr, fmt, ap);
+	va_end(ap);
+
+	exit(1);
+}
+
+__declspec(noreturn) static void WlnAbortWithWin32Error(int err, const wchar_t* fmt, ...) {
+	std::unique_ptr<wchar_t, void(*)(wchar_t*)> buf(nullptr, _heapFree<wchar_t>);
+	if(err) {
+		wchar_t* b = nullptr;
+		FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM, nullptr, err, 0, (LPWSTR)&b, 1024, nullptr);
+		buf.reset(b);
+	}
+	if(fmt) {
+		va_list ap;
+		va_start(ap, fmt);
+		vfwprintf(stderr, fmt, ap);
+		va_end(ap);
+	}
+	if(buf) {
+		fwprintf(stderr, L"Error 0x%8.08X: %ls", err, buf.get()); // FormatMessageW emits \r\n
+	}
+
+	exit(1);
 }
 
 struct option {
@@ -118,7 +164,7 @@ int wmain(int argc, wchar_t** argv) {
 			force = true;
 			break;
 		case 'h':
-			usage(argv[0]);
+			WlnAbortWithUsage();
 			return 0;
 		case 'j':
 			junction = true;
@@ -134,43 +180,44 @@ int wmain(int argc, wchar_t** argv) {
 opts_done:
 
 	if(symlink && junction) {
-		argerr(argv[0], L"cannot do --symbolic and --junction at the same time");
+		WlnAbortWithArgumentError(L"cannot do --symbolic and --junction at the same time");
 		return 1;
 	}
 
 	if(relative && !symlink) {
-		argerr(argv[0], L"cannot do --relative without --symbolic");
+		WlnAbortWithArgumentError(L"cannot do --relative without --symbolic");
 		return 1;
 
 	}
 
 	if(optind + 2 > argc) {
-		argerr(argv[0], L"missing file operand");
+		WlnAbortWithArgumentError(L"missing file operand");
 		return 1;
 	}
 
-	wchar_t* target = argv[optind];
-	wchar_t* linkname = argv[optind + 1];
+	std::wstring target{argv[optind]};
+	std::wstring linkname{argv[optind + 1]};
 
 	WIN32_FILE_ATTRIBUTE_DATA targetFi{};
-	if(!GetFileAttributesExW(target, GetFileExInfoStandard, &targetFi)) {
-		return exit_last_error(L"statting %ls", target);
+	if(!GetFileAttributesExW(target.c_str(), GetFileExInfoStandard, &targetFi)) {
+		WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", target.c_str());
 	}
 
 	WIN32_FILE_ATTRIBUTE_DATA linkFi{};
-	if(int r = GetFileAttributesExW(linkname, GetFileExInfoStandard, &linkFi)) {
-		if(!r && GetLastError() != ERROR_NOT_FOUND) return exit_last_error(L"statting %ls", linkname);
+	if(int r = GetFileAttributesExW(linkname.c_str(), GetFileExInfoStandard, &linkFi)) {
+		if(!r && GetLastError() != ERROR_NOT_FOUND) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", linkname.c_str());
+		}
 		else if(r && force) {
-			if(!DeleteFileW(linkname)) {
-				return exit_last_error(L"deleting %ls", linkname);
+			if(!DeleteFileW(linkname.c_str())) {
+				WlnAbortWithWin32Error(GetLastError(), L"Failed to delete `%ls'.", linkname.c_str());
 			}
 		}
 	}
 
 	if(symlink) {
-		// TODO(DH): Junctions
 		if(relative) {
-			argerr(argv[0], L"--relative isn't yet implemented");
+			WlnAbortWithArgumentError(L"--relative is not yet implemented");
 			return 1;
 		}
 
@@ -179,16 +226,16 @@ opts_done:
 			flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
 		}
 
-		if(!CreateSymbolicLinkW(linkname, target, flags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
-			return exit_last_error(L"creating the symlink");
+		if(!CreateSymbolicLinkW(linkname.c_str(), target.c_str(), flags | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE)) {
+			WlnAbortWithWin32Error(GetLastError(), nullptr);
 		}
 	} else if(junction) {
 		// TODO(DH): Junctions
-		argerr(argv[0], L"junctions aren't supported");
+		WlnAbortWithArgumentError(L"junctions aren't supported");
 		return 1;
 	} else {
-		if(!CreateHardLinkW(linkname, target, nullptr)) {
-			return exit_last_error(L"creating the hard link");
+		if(!CreateHardLinkW(linkname.c_str(), target.c_str(), nullptr)) {
+			WlnAbortWithWin32Error(GetLastError(), nullptr);
 		}
 	}
 
