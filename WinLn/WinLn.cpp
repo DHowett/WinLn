@@ -20,6 +20,34 @@ __declspec(noreturn) static void WlnAbortWithUsage() {
 	exit(0);
 }
 
+static std::wstring WlnMakePathAbsolute(const std::wstring& path) {
+	wchar_t buf[LONG_MAX_PATH];
+	if(!GetFullPathNameW(path.c_str(), std::extent<decltype(buf)>::value, buf, nullptr)) {
+		WlnAbortWithWin32Error(GetLastError(), L"Failed to locate `%ls' relative to cwd.", path.c_str());
+	}
+	return buf;
+}
+
+// WlnMakePathAbsoluteAsDirectory is like WlnMakePathAbsolute, but it
+// strips off the final filename and returns only the directory.
+static std::wstring WlnMakePathAbsoluteAsDirectory(const std::wstring& path) {
+	wchar_t buf[LONG_MAX_PATH];
+	wchar_t* filename = nullptr;
+	if(!GetFullPathNameW(path.c_str(), std::extent<decltype(buf)>::value, buf, &filename)) {
+		WlnAbortWithWin32Error(GetLastError(), L"Failed to locate `%ls' relative to cwd.", path.c_str());
+	}
+	*filename = L'\0';
+	return buf;
+}
+
+static std::wstring WlnMakePathRelative(const std::wstring& path, const std::wstring& to, bool isDir) {
+	wchar_t rel[LONG_MAX_PATH];
+	if(!PathRelativePathToW(rel, to.c_str(), FILE_ATTRIBUTE_DIRECTORY, path.c_str(), isDir ? FILE_ATTRIBUTE_DIRECTORY : 0)) {
+		WlnAbortWithReason(L"Could not make `%ls' relative to `%ls'.", path.c_str(), to.c_str());
+	}
+	return rel;
+}
+
 static option opts[]{
 	{L"force", L'f', false},
 	{L"symbolic", L's', false},
@@ -61,8 +89,8 @@ opts_done:
 		return 1;
 	}
 
-	if(relative && !symlink) {
-		WlnAbortWithArgumentError(L"cannot do --relative without --symbolic");
+	if(relative && (!symlink && !junction)) {
+		WlnAbortWithArgumentError(L"cannot do --relative without --symbolic or --junction");
 		return 1;
 
 	}
@@ -94,8 +122,9 @@ opts_done:
 
 	if(symlink) {
 		if(relative) {
-			WlnAbortWithArgumentError(L"--relative is not yet implemented");
-			return 1;
+			std::wstring tabs = WlnMakePathAbsolute(target);
+			std::wstring lbase = WlnMakePathAbsoluteAsDirectory(linkname);
+			target = WlnMakePathRelative(tabs, lbase, targetFi.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY);
 		}
 
 		int flags = 0;
