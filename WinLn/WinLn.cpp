@@ -124,24 +124,32 @@ opts_done:
 
 	WIN32_FILE_ATTRIBUTE_DATA targetFi{};
 	if(!GetFileAttributesExW(target.c_str(), GetFileExInfoStandard, &targetFi)) {
-		WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", target.c_str());
+		int gle = 0;
+		// Symbolic Links and Junctions can be created for nonexistent targets.
+		if((!symlink && !junction) || (gle = GetLastError()) != ERROR_FILE_NOT_FOUND) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", target.c_str());
+		}
 	}
 
 	WIN32_FILE_ATTRIBUTE_DATA linkFi{};
-	if(int r = GetFileAttributesExW(linkname.c_str(), GetFileExInfoStandard, &linkFi)) {
-		if(!r && GetLastError() != ERROR_NOT_FOUND) {
-			WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", linkname.c_str());
-		} else if(r && force) {
-			int ret = 0;
-			if(!junction) {
-				ret = DeleteFileW(linkname.c_str());
-			} else {
-				ret = RemoveDirectoryW(linkname.c_str());
-			}
+	int ret = GetFileAttributesExW(linkname.c_str(), GetFileExInfoStandard, &linkFi);
+	int gle = 0;
+	if(!ret && (gle = GetLastError()) != ERROR_FILE_NOT_FOUND) {
+		WlnAbortWithWin32Error(gle, L"Failed to read attributes for `%ls'.", linkname.c_str());
+	} else if(ret && force) {
+		int ret = 0;
+		if(linkFi.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY && linkFi.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+			// directories that are reparse points
+			ret = RemoveDirectoryW(linkname.c_str());
+		} else if(!(linkFi.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+			// files (incl. reparse points)
+			ret = DeleteFileW(linkname.c_str());
+		} else {
+			WlnAbortWithReason(L"Cannot overwrite directory `%ls'.", linkname.c_str());
+		}
 
-			if(!ret) {
-				WlnAbortWithWin32Error(GetLastError(), L"Failed to delete `%ls'.", linkname.c_str());
-			}
+		if(!ret) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to delete `%ls'.", linkname.c_str());
 		}
 	}
 
