@@ -1,16 +1,33 @@
+#define _SCL_SECURE_NO_WARNINGS 1
 #include "common.h"
 #include "error.h"
 #include "getopt.h"
 
+#include <winioctl.h>
 #include <Shlwapi.h>
 #include <stdio.h>
 #include <string>
+
+struct REPARSE_POINT_HEADER {
+	ULONG ReparseTag;
+	USHORT ReparseDataLength;
+	USHORT Reserved;
+};
+
+struct REPARSE_MOUNT_POINT_BUFFER {
+	REPARSE_POINT_HEADER Header;
+	USHORT SubstituteNameOffset;
+	USHORT SubstituteNameLength;
+	USHORT PrintNameOffset;
+	USHORT PrintNameLength;
+	WCHAR  PathBuffer[0];
+};
 
 __declspec(noreturn) static void WlnAbortWithUsage() {
 	fwprintf(stderr, L"Usage: %ls [option]... <target> <link>\r\n"
 		             L"\r\n"
 		             L"  -s, --symbolic     create symbolic links instead of hard links\r\n"
-		             L"  -j, --junction     create a Windows directory junctions instead of hard links\r\n"
+		             L"  -j, --junction     create Windows directory junctions instead of hard links\r\n"
 		             L"                     -s and -j are mutually exclusive\r\n"
 		             L"\r\n"
 		             L"  -r, --relative     create symbolic links relative to link location\r\n"
@@ -21,6 +38,8 @@ __declspec(noreturn) static void WlnAbortWithUsage() {
 }
 
 static std::wstring WlnMakePathAbsolute(const std::wstring& path) {
+	if(path.compare(0, 4, L"\\??\\") == 0) return path;
+
 	wchar_t buf[LONG_MAX_PATH];
 	if(!GetFullPathNameW(path.c_str(), std::extent<decltype(buf)>::value, buf, nullptr)) {
 		WlnAbortWithWin32Error(GetLastError(), L"Failed to locate `%ls' relative to cwd.", path.c_str());
@@ -89,8 +108,8 @@ opts_done:
 		return 1;
 	}
 
-	if(relative && (!symlink && !junction)) {
-		WlnAbortWithArgumentError(L"cannot do --relative without --symbolic or --junction");
+	if(relative && !symlink) {
+		WlnAbortWithArgumentError(L"cannot do --relative without --symbolic");
 		return 1;
 
 	}
@@ -112,9 +131,15 @@ opts_done:
 	if(int r = GetFileAttributesExW(linkname.c_str(), GetFileExInfoStandard, &linkFi)) {
 		if(!r && GetLastError() != ERROR_NOT_FOUND) {
 			WlnAbortWithWin32Error(GetLastError(), L"Failed to read attributes for `%ls'.", linkname.c_str());
-		}
-		else if(r && force) {
-			if(!DeleteFileW(linkname.c_str())) {
+		} else if(r && force) {
+			int ret = 0;
+			if(!junction) {
+				ret = DeleteFileW(linkname.c_str());
+			} else {
+				ret = RemoveDirectoryW(linkname.c_str());
+			}
+
+			if(!ret) {
 				WlnAbortWithWin32Error(GetLastError(), L"Failed to delete `%ls'.", linkname.c_str());
 			}
 		}
@@ -136,9 +161,39 @@ opts_done:
 			WlnAbortWithWin32Error(GetLastError(), nullptr);
 		}
 	} else if(junction) {
-		// TODO(DH): Junctions
-		WlnAbortWithArgumentError(L"junctions aren't supported");
-		return 1;
+		std::wstring tabs = WlnMakePathAbsolute(target);
+		if(tabs.compare(0, 4, L"\\\\?\\") == 0) {
+			tabs[1] = L'?'; // Replace "\\?\" with "\??\"
+		}
+
+		if(tabs.compare(0, 4, L"\\??\\") != 0) {
+			tabs = L"\\??\\" + tabs;
+		}
+
+		if(!CreateDirectoryW(linkname.c_str(), nullptr)) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to create junction `%ls'.", linkname.c_str());
+		}
+
+		HANDLE hFile = INVALID_HANDLE_VALUE;
+		if(INVALID_HANDLE_VALUE == (hFile = CreateFileW(linkname.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr))) {
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to open junction `%ls'.", linkname.c_str());
+		}
+
+		size_t reparseLength = sizeof(REPARSE_MOUNT_POINT_BUFFER) + (tabs.length() * sizeof(wchar_t)) + (2 * sizeof(wchar_t));
+		REPARSE_MOUNT_POINT_BUFFER* reparse = static_cast<REPARSE_MOUNT_POINT_BUFFER*>(calloc(1, reparseLength));
+		reparse->Header.ReparseTag = IO_REPARSE_TAG_MOUNT_POINT;
+		reparse->Header.ReparseDataLength = static_cast<uint16_t>(reparseLength - sizeof(REPARSE_POINT_HEADER));
+		reparse->SubstituteNameLength = static_cast<uint16_t>(tabs.length() * sizeof(wchar_t));
+		reparse->PrintNameOffset = static_cast<uint16_t>(reparse->SubstituteNameLength + sizeof(wchar_t));
+		reparse->PrintNameLength = 0;
+
+		std::copy(tabs.begin(), tabs.end(), static_cast<wchar_t*>(reparse->PathBuffer));
+
+		if(!DeviceIoControl(hFile, FSCTL_SET_REPARSE_POINT, reparse, reparseLength, nullptr, 0, nullptr, nullptr)) {
+			CloseHandle(hFile);
+			WlnAbortWithWin32Error(GetLastError(), L"Failed to populate reparse point at `%ls'.", linkname.c_str());
+		}
+		CloseHandle(hFile);
 	} else {
 		if(!CreateHardLinkW(linkname.c_str(), target.c_str(), nullptr)) {
 			WlnAbortWithWin32Error(GetLastError(), nullptr);
