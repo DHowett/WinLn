@@ -30,6 +30,9 @@
     <ClInclude Include="getopt.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="resource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="WinLn.cpp">
@@ -44,5 +47,10 @@
   </ItemGroup>
   <ItemGroup>
     <Manifest Include="WinLn.manifest" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="WinLn.rc">
+      <Filter>Resource Files</Filter>
+    </ResourceCompile>
   </ItemGroup>
 </Project>
