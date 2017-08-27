@@ -1,10 +1,16 @@
 #pragma once
 
-struct option {
-	const wchar_t* name;
-	wchar_t shopt;
-	bool has_arg;
-};
+#include "optparser.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 extern bool _optreset;
-int getopt_long(int argc, wchar_t** argv, const struct option opts[], int* idxptr, wchar_t** optargptr);
+extern int optind;
+extern wchar_t* optarg;
+int getopt_long(int argc, wchar_t** argv, const struct option opts[]);
+
+#ifdef __cplusplus
+}
+#endif

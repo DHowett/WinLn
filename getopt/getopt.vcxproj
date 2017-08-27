@@ -19,10 +19,12 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="getopt.cpp" />
+    <ClCompile Include="getopt_shim.cpp" />
+    <ClCompile Include="optparser.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="getopt.h" />
+    <ClInclude Include="optparser.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>15.0</VCProjectVersion>
