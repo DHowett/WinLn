@@ -3,8 +3,7 @@
 A Windows mimic of GNU Coreutils `ln`. It tries to be compatible
 for `-s` and `-f`.
 
-It comes with its own haphazard reimplementation of `getopt_long`
-that doesn't support argument packing.
+It comes with its own haphazard reimplementation of `getopt_long`.
 
 ## Usage
 
