@@ -7,6 +7,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WinLn", "WinLn\WinLn.vcxpro
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "getopt", "getopt\getopt.vcxproj", "{33431594-44C4-4808-B634-73691FABBB92}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "getopt_tests", "getopt_tests\getopt_tests.vcxproj", "{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -31,6 +33,14 @@ Global
 		{33431594-44C4-4808-B634-73691FABBB92}.Release|x64.Build.0 = Release|x64
 		{33431594-44C4-4808-B634-73691FABBB92}.Release|x86.ActiveCfg = Release|Win32
 		{33431594-44C4-4808-B634-73691FABBB92}.Release|x86.Build.0 = Release|Win32
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Debug|x64.ActiveCfg = Debug|x64
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Debug|x64.Build.0 = Debug|x64
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Debug|x86.ActiveCfg = Debug|Win32
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Debug|x86.Build.0 = Debug|Win32
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Release|x64.ActiveCfg = Release|x64
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Release|x64.Build.0 = Release|x64
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Release|x86.ActiveCfg = Release|Win32
+		{DBCEF5C5-5EC7-4948-975E-ABD450FFE46B}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
