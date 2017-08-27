@@ -1,12 +1,12 @@
 #define _SCL_SECURE_NO_WARNINGS 1
 #include "common.h"
 #include "error.h"
-#include "getopt.h"
 
 #include <winioctl.h>
 #include <Shlwapi.h>
 #include <stdio.h>
 #include <string>
+#include <getopt/getopt.h>
 
 struct REPARSE_POINT_HEADER {
 	ULONG ReparseTag;

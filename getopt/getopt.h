@@ -6,4 +6,5 @@ struct option {
 	bool has_arg;
 };
 
+extern bool _optreset;
 int getopt_long(int argc, wchar_t** argv, const struct option opts[], int* idxptr, wchar_t** optargptr);
