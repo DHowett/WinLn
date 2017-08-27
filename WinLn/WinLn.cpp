@@ -79,8 +79,7 @@ static option opts[]{
 
 int wmain(int argc, wchar_t** argv) {
 	bool force = false, symlink = false, junction = false, relative = false;
-	int optind = 0;
-	while(int o = getopt_long(argc, argv, opts, &optind, nullptr)) {
+	while(int o = getopt_long(argc, argv, opts)) {
 		switch(o) {
 		case -1:
 			goto opts_done;
