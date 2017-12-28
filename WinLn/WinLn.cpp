@@ -273,7 +273,7 @@ opts_done:
 	return 0;
 }
 
-static void WlnCreateSymbolicLink(std::wstring target, const std::wstring& link, bool relative) {
+static void WlnCreateSymbolicLink(std::wstring target, const std::wstring& link, bool force, bool relative) {
 	auto targetFi{WlnGetAttributes(target)};
 	auto isDir = WlnIsDirectory(targetFi);
 	if(relative) {
@@ -287,12 +287,18 @@ static void WlnCreateSymbolicLink(std::wstring target, const std::wstring& link,
 		flags |= SYMBOLIC_LINK_FLAG_DIRECTORY;
 	}
 
+	if(force) {
+		// might as well try both.
+		RemoveDirectoryW(link.c_str());
+		DeleteFileW(link.c_str());
+	}
+
 	if(!CreateSymbolicLinkW(link.c_str(), target.c_str(), flags)) {
 		WlnAbortWithWin32Error(GetLastError(), nullptr);
 	}
 }
 
-static void WlnCreateJunction(const std::wstring& target, const std::wstring& link) {
+static void WlnCreateJunction(const std::wstring& target, const std::wstring& link, bool force) {
 	auto targetFi{WlnGetAttributes(target)};
 	if(!WlnIsPhysicalDirectory(targetFi)) {
 		WlnAbortWithReason(L"`%ls' is not a physical directory", target.c_str());
@@ -305,6 +311,10 @@ static void WlnCreateJunction(const std::wstring& target, const std::wstring& li
 
 	if(tabs.compare(0, 4, L"\\??\\") != 0) {
 		tabs = L"\\??\\" + tabs;
+	}
+
+	if(force) {
+		RemoveDirectoryW(link.c_str());
 	}
 
 	if(!CreateDirectoryW(link.c_str(), nullptr)) {
@@ -354,13 +364,6 @@ static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& t
 		if(!force) {
 			WlnAbortWithReason(L"`%ls': destination exists", link.c_str());
 		}
-
-		if(WlnIsDirectory(destFi.value())) {
-			// we'll only get here if we're looking at a directory symlink/junction
-			RemoveDirectoryW(link.c_str());
-		} else {
-			DeleteFileW(link.c_str());
-		}
 	}
 
 	if(verbose) {
@@ -374,10 +377,10 @@ static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& t
 		}
 		break;
 	case LinkTypeSymbolic:
-		WlnCreateSymbolicLink(target, link, relative);
+		WlnCreateSymbolicLink(target, link, force, relative);
 		break;
 	case LinkTypeJunction:
-		WlnCreateJunction(target, link);
+		WlnCreateJunction(target, link, force);
 		break;
 	}
 }
