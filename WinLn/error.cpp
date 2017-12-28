@@ -32,6 +32,8 @@ static void _heapFree(T* ptr) {
 }
 
 __declspec(noreturn) void WlnAbortWithReason(const wchar_t* fmt, ...) {
+	fwprintf(stderr, L"%ls: ", WlnGetProgName().c_str());
+
 	va_list ap;
 	va_start(ap, fmt);
 	vfwprintf(stderr, fmt, ap);
@@ -48,6 +50,7 @@ __declspec(noreturn) void WlnAbortWithWin32Error(int err, const wchar_t* fmt, ..
 		buf.reset(b);
 	}
 	if(fmt) {
+		fwprintf(stderr, L"%ls: ", WlnGetProgName().c_str());
 		va_list ap;
 		va_start(ap, fmt);
 		vfwprintf(stderr, fmt, ap);
