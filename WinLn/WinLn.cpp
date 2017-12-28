@@ -240,7 +240,10 @@ opts_done:
 		diropt = DirOptionTargetIsDir;
 	}
 
-	std::wstring finalLinkname{linkname.value_or(targets[0])};
+	if(!linkname.has_value()) {
+		linkname = WlnGetFilename(WlnMakePathAbsolute(targets[0]));
+	}
+	std::wstring finalLinkname{linkname.value()};
 
 	auto linkFi{WlnGetAttributes(finalLinkname)};
 	if(linkFi && WlnIsDirectory(linkFi.value())) {
