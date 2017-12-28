@@ -108,6 +108,12 @@ struct testcase cases[]{
 		/* args */ {L"value", L"value 2"},
 		/* left */ {L"Argument 1", L"Argument 2", L"-bc"},
 	},
+	{ // bad options
+		/* argv */ {L"ProgramName",  L"--fun"},
+		/* resp */ {'?'},
+		/* args */ {},
+		/* left */ {},
+	},
 };
 
 INSTANTIATE_TEST_CASE_P(Getopt, GetoptTest, ::testing::ValuesIn(cases));
