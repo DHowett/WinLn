@@ -218,12 +218,14 @@
 //   GTEST_OS_AIX      - IBM AIX
 //   GTEST_OS_CYGWIN   - Cygwin
 //   GTEST_OS_FREEBSD  - FreeBSD
+//   GTEST_OS_FUCHSIA  - Fuchsia
 //   GTEST_OS_HPUX     - HP-UX
 //   GTEST_OS_LINUX    - Linux
 //     GTEST_OS_LINUX_ANDROID - Google Android
 //   GTEST_OS_MAC      - Mac OS X
 //     GTEST_OS_IOS    - iOS
 //   GTEST_OS_NACL     - Google Native Client (NaCl)
+//   GTEST_OS_NETBSD   - NetBSD
 //   GTEST_OS_OPENBSD  - OpenBSD
 //   GTEST_OS_QNX      - QNX
 //   GTEST_OS_SOLARIS  - Sun Solaris
@@ -265,7 +267,6 @@
 //   GTEST_HAS_COMBINE      - the Combine() function (for value-parameterized
 //                            tests)
 //   GTEST_HAS_DEATH_TEST   - death tests
-//   GTEST_HAS_PARAM_TEST   - value-parameterized tests
 //   GTEST_HAS_TYPED_TEST   - typed tests
 //   GTEST_HAS_TYPED_TEST_P - type-parameterized tests
 //   GTEST_IS_THREADSAFE    - Google Test is thread-safe.
@@ -445,6 +446,8 @@
 # endif
 #elif defined __FreeBSD__
 # define GTEST_OS_FREEBSD 1
+#elif defined __Fuchsia__
+# define GTEST_OS_FUCHSIA 1
 #elif defined __linux__
 # define GTEST_OS_LINUX 1
 # if defined __ANDROID__
@@ -460,6 +463,8 @@
 # define GTEST_OS_HPUX 1
 #elif defined __native_client__
 # define GTEST_OS_NACL 1
+#elif defined __NetBSD__
+# define GTEST_OS_NETBSD 1
 #elif defined __OpenBSD__
 # define GTEST_OS_OPENBSD 1
 #elif defined __QNX__
@@ -530,6 +535,9 @@
 //     GTEST_EXCLUSIVE_LOCK_REQUIRED_(locks)
 //     GTEST_LOCK_EXCLUDED_(locks)
 //
+//   Exporting API symbols:
+//     GTEST_API_ - Specifier for exported symbols.
+//
 // ** Custom implementation starts here **
 
 #ifndef GTEST_INCLUDE_GTEST_INTERNAL_CUSTOM_GTEST_PORT_H_
@@ -579,7 +587,7 @@
 // -std={c,gnu}++{0x,11} is passed.  The C++11 standard specifies a
 // value for __cplusplus, and recent versions of clang, gcc, and
 // probably other compilers set that too in C++11 mode.
-# if __GXX_EXPERIMENTAL_CXX0X__ || __cplusplus >= 201103L
+# if __GXX_EXPERIMENTAL_CXX0X__ || __cplusplus >= 201103L || _MSC_VER >= 1900
 // Compiling in at least C++11 mode.
 #  define GTEST_LANG_CXX11 1
 # else
@@ -611,12 +619,16 @@
 #if GTEST_STDLIB_CXX11
 # define GTEST_HAS_STD_BEGIN_AND_END_ 1
 # define GTEST_HAS_STD_FORWARD_LIST_ 1
-# define GTEST_HAS_STD_FUNCTION_ 1
+# if !defined(_MSC_VER) || (_MSC_FULL_VER >= 190023824) // works only with VS2015U2 and better
+#   define GTEST_HAS_STD_FUNCTION_ 1
+# endif
 # define GTEST_HAS_STD_INITIALIZER_LIST_ 1
 # define GTEST_HAS_STD_MOVE_ 1
 # define GTEST_HAS_STD_SHARED_PTR_ 1
 # define GTEST_HAS_STD_TYPE_TRAITS_ 1
 # define GTEST_HAS_STD_UNIQUE_PTR_ 1
+# define GTEST_HAS_UNORDERED_MAP_ 1
+# define GTEST_HAS_UNORDERED_SET_ 1
 #endif
 
 // C++11 specifies that <tuple> provides std::tuple.
@@ -652,10 +664,16 @@
 #  include <io.h>
 # endif
 // In order to avoid having to include <windows.h>, use forward declaration
-// assuming CRITICAL_SECTION is a typedef of _RTL_CRITICAL_SECTION.
+#if GTEST_OS_WINDOWS_MINGW && !defined(__MINGW64_VERSION_MAJOR)
+// MinGW defined _CRITICAL_SECTION and _RTL_CRITICAL_SECTION as two
+// separate (equivalent) structs, instead of using typedef
+typedef struct _CRITICAL_SECTION GTEST_CRITICAL_SECTION;
+#else
+// Assume CRITICAL_SECTION is a typedef of _RTL_CRITICAL_SECTION.
 // This assumption is verified by
 // WindowsTypesTest.CRITICAL_SECTIONIs_RTL_CRITICAL_SECTION.
-struct _RTL_CRITICAL_SECTION;
+typedef struct _RTL_CRITICAL_SECTION GTEST_CRITICAL_SECTION;
+#endif
 #else
 // This assumes that non-Windows OSes provide unistd.h. For OSes where this
 // is not the case, we need to include headers that provide the functions
@@ -856,8 +874,9 @@ struct _RTL_CRITICAL_SECTION;
 //
 // To disable threading support in Google Test, add -DGTEST_HAS_PTHREAD=0
 // to your compiler flags.
-# define GTEST_HAS_PTHREAD (GTEST_OS_LINUX || GTEST_OS_MAC || GTEST_OS_HPUX \
-    || GTEST_OS_QNX || GTEST_OS_FREEBSD || GTEST_OS_NACL)
+#define GTEST_HAS_PTHREAD                                                      \
+  (GTEST_OS_LINUX || GTEST_OS_MAC || GTEST_OS_HPUX || GTEST_OS_QNX ||          \
+   GTEST_OS_FREEBSD || GTEST_OS_NACL || GTEST_OS_NETBSD || GTEST_OS_FUCHSIA)
 #endif  // GTEST_HAS_PTHREAD
 
 #if GTEST_HAS_PTHREAD
@@ -872,7 +891,7 @@ struct _RTL_CRITICAL_SECTION;
 // Determines if hash_map/hash_set are available.
 // Only used for testing against those containers.
 #if !defined(GTEST_HAS_HASH_MAP_)
-# if _MSC_VER
+# if defined(_MSC_VER) && (_MSC_VER < 1900)
 #  define GTEST_HAS_HASH_MAP_ 1  // Indicates that hash_map is available.
 #  define GTEST_HAS_HASH_SET_ 1  // Indicates that hash_set is available.
 # endif  // _MSC_VER
@@ -884,6 +903,9 @@ struct _RTL_CRITICAL_SECTION;
 #ifndef GTEST_HAS_TR1_TUPLE
 # if GTEST_OS_LINUX_ANDROID && defined(_STLPORT_MAJOR)
 // STLport, provided with the Android NDK, has neither <tr1/tuple> or <tuple>.
+#  define GTEST_HAS_TR1_TUPLE 0
+# elif defined(_MSC_VER) && (_MSC_VER >= 1910)
+// Prevent `warning C4996: 'std::tr1': warning STL4002: The non-Standard std::tr1 namespace and TR1-only machinery are deprecated and will be REMOVED.`
 #  define GTEST_HAS_TR1_TUPLE 0
 # else
 // The user didn't tell us not to do it, so we assume it's OK.
@@ -907,7 +929,8 @@ struct _RTL_CRITICAL_SECTION;
 // support TR1 tuple.  libc++ only provides std::tuple, in C++11 mode,
 // and it can be used with some compilers that define __GNUC__.
 # if (defined(__GNUC__) && !defined(__CUDACC__) && (GTEST_GCC_VER_ >= 40000) \
-      && !GTEST_OS_QNX && !defined(_LIBCPP_VERSION)) || _MSC_VER >= 1600
+      && !GTEST_OS_QNX && !defined(_LIBCPP_VERSION)) \
+      || (_MSC_VER >= 1600 && _MSC_VER < 1900)
 #  define GTEST_ENV_HAS_TR1_TUPLE_ 1
 # endif
 
@@ -2007,7 +2030,7 @@ using ::std::tuple_size;
 #   define _TR1_FUNCTIONAL 1
 #   include <tr1/tuple>
 #   undef _TR1_FUNCTIONAL  // Allows the user to #include
-                        // <tr1/functional> if he chooses to.
+                        // <tr1/functional> if they choose to.
 #  else
 #   include <tr1/tuple>  // NOLINT
 #  endif  // !GTEST_HAS_RTTI && GTEST_GCC_VER_ < 40302
@@ -2029,8 +2052,12 @@ using ::std::tuple_size;
 
 # if GTEST_OS_LINUX && !defined(__ia64__)
 #  if GTEST_OS_LINUX_ANDROID
-// On Android, clone() is only available on ARM starting with Gingerbread.
-#    if defined(__arm__) && __ANDROID_API__ >= 9
+// On Android, clone() became available at different API levels for each 32-bit
+// architecture.
+#    if defined(__LP64__) || \
+        (defined(__arm__) && __ANDROID_API__ >= 9) || \
+        (defined(__mips__) && __ANDROID_API__ >= 12) || \
+        (defined(__i386__) && __ANDROID_API__ >= 17)
 #     define GTEST_HAS_CLONE 1
 #    else
 #     define GTEST_HAS_CLONE 0
@@ -2065,14 +2092,9 @@ using ::std::tuple_size;
      (GTEST_OS_MAC && !GTEST_OS_IOS) || \
      (GTEST_OS_WINDOWS_DESKTOP && _MSC_VER >= 1400) || \
      GTEST_OS_WINDOWS_MINGW || GTEST_OS_AIX || GTEST_OS_HPUX || \
-     GTEST_OS_OPENBSD || GTEST_OS_QNX || GTEST_OS_FREEBSD)
+     GTEST_OS_OPENBSD || GTEST_OS_QNX || GTEST_OS_FREEBSD || GTEST_OS_NETBSD)
 # define GTEST_HAS_DEATH_TEST 1
 #endif
-
-// We don't support MSVC 7.1 with exceptions disabled now.  Therefore
-// all the compilers we care about are adequate for supporting
-// value-parameterized tests.
-#define GTEST_HAS_PARAM_TEST 1
 
 // Determines whether to support type-driven tests.
 
@@ -2084,11 +2106,10 @@ using ::std::tuple_size;
 # define GTEST_HAS_TYPED_TEST_P 1
 #endif
 
-// Determines whether to support Combine(). This only makes sense when
-// value-parameterized tests are enabled.  The implementation doesn't
-// work on Sun Studio since it doesn't understand templated conversion
-// operators.
-#if GTEST_HAS_PARAM_TEST && GTEST_HAS_TR1_TUPLE && !defined(__SUNPRO_CC)
+// Determines whether to support Combine().
+// The implementation doesn't work on Sun Studio since it doesn't
+// understand templated conversion operators.
+#if GTEST_HAS_TR1_TUPLE && !defined(__SUNPRO_CC)
 # define GTEST_HAS_COMBINE 1
 #endif
 
@@ -2137,6 +2158,23 @@ using ::std::tuple_size;
 #endif
 #ifndef GTEST_ATTRIBUTE_UNUSED_
 # define GTEST_ATTRIBUTE_UNUSED_
+#endif
+
+// Use this annotation before a function that takes a printf format string.
+#if defined(__GNUC__) && !defined(COMPILER_ICC)
+# if defined(__MINGW_PRINTF_FORMAT)
+// MinGW has two different printf implementations. Ensure the format macro
+// matches the selected implementation. See
+// https://sourceforge.net/p/mingw-w64/wiki2/gnu%20printf/.
+#  define GTEST_ATTRIBUTE_PRINTF_(string_index, first_to_check) \
+       __attribute__((__format__(__MINGW_PRINTF_FORMAT, string_index, \
+                                 first_to_check)))
+# else
+#  define GTEST_ATTRIBUTE_PRINTF_(string_index, first_to_check) \
+       __attribute__((__format__(__printf__, string_index, first_to_check)))
+# endif
+#else
+# define GTEST_ATTRIBUTE_PRINTF_(string_index, first_to_check)
 #endif
 
 // A macro to disallow operator=
@@ -2195,6 +2233,11 @@ using ::std::tuple_size;
 
 #endif  // GTEST_HAS_SEH
 
+// GTEST_API_ qualifies all symbols that must be exported. The definitions below
+// are guarded by #ifndef to give embedders a chance to define GTEST_API_ in
+// gtest/internal/custom/gtest-port.h
+#ifndef GTEST_API_
+
 #ifdef _MSC_VER
 # if GTEST_LINKED_AS_SHARED_LIBRARY
 #  define GTEST_API_ __declspec(dllimport)
@@ -2205,9 +2248,11 @@ using ::std::tuple_size;
 # define GTEST_API_ __attribute__((visibility ("default")))
 #endif // _MSC_VER
 
+#endif // GTEST_API_
+
 #ifndef GTEST_API_
 # define GTEST_API_
-#endif
+#endif // GTEST_API_
 
 #ifdef __GNUC__
 // Ask the compiler to never inline a given function.
@@ -2693,9 +2738,6 @@ GTEST_API_ std::string GetCapturedStderr();
 
 #endif  // GTEST_HAS_STREAM_REDIRECTION
 
-// Returns a path to temporary directory.
-GTEST_API_ std::string TempDir();
-
 // Returns the size (in bytes) of a file.
 GTEST_API_ size_t GetFileSize(FILE* file);
 
@@ -2968,7 +3010,7 @@ class GTEST_API_ Mutex {
   // by the linker.
   MutexType type_;
   long critical_section_init_phase_;  // NOLINT
-  _RTL_CRITICAL_SECTION* critical_section_;
+  GTEST_CRITICAL_SECTION* critical_section_;
 
   GTEST_DISALLOW_COPY_AND_ASSIGN_(Mutex);
 };
@@ -3302,7 +3344,7 @@ extern "C" inline void DeleteThreadLocalValue(void* value_holder) {
 
 // Implements thread-local storage on pthreads-based systems.
 template <typename T>
-class ThreadLocal {
+class GTEST_API_ ThreadLocal {
  public:
   ThreadLocal()
       : key_(CreateKey()), default_factory_(new DefaultValueHolderFactory()) {}
@@ -3434,7 +3476,7 @@ class GTestMutexLock {
 typedef GTestMutexLock MutexLock;
 
 template <typename T>
-class ThreadLocal {
+class GTEST_API_ ThreadLocal {
  public:
   ThreadLocal() : value_() {}
   explicit ThreadLocal(const T& value) : value_(value) {}
@@ -3453,12 +3495,13 @@ class ThreadLocal {
 GTEST_API_ size_t GetThreadCount();
 
 // Passing non-POD classes through ellipsis (...) crashes the ARM
-// compiler and generates a warning in Sun Studio.  The Nokia Symbian
+// compiler and generates a warning in Sun Studio before 12u4. The Nokia Symbian
 // and the IBM XL C/C++ compiler try to instantiate a copy constructor
 // for objects passed through ellipsis (...), failing for uncopyable
 // objects.  We define this to ensure that only POD is passed through
 // ellipsis on these systems.
-#if defined(__SYMBIAN32__) || defined(__IBMCPP__) || defined(__SUNPRO_CC)
+#if defined(__SYMBIAN32__) || defined(__IBMCPP__) || \
+     (defined(__SUNPRO_CC) && __SUNPRO_CC < 0x5130)
 // We lose support for NULL detection where the compiler doesn't like
 // passing non-POD classes through ellipsis (...).
 # define GTEST_ELLIPSIS_NEEDS_POD_ 1
@@ -3483,6 +3526,12 @@ template <bool bool_value> const bool bool_constant<bool_value>::value;
 
 typedef bool_constant<false> false_type;
 typedef bool_constant<true> true_type;
+
+template <typename T, typename U>
+struct is_same : public false_type {};
+
+template <typename T>
+struct is_same<T, T> : public true_type {};
 
 template <typename T>
 struct is_pointer : public false_type {};
@@ -3660,7 +3709,7 @@ inline int Close(int fd) { return close(fd); }
 inline const char* StrError(int errnum) { return strerror(errnum); }
 #endif
 inline const char* GetEnv(const char* name) {
-#if GTEST_OS_WINDOWS_MOBILE || GTEST_OS_WINDOWS_PHONE | GTEST_OS_WINDOWS_RT
+#if GTEST_OS_WINDOWS_MOBILE || GTEST_OS_WINDOWS_PHONE || GTEST_OS_WINDOWS_RT
   // We are on Windows CE, which has no environment variables.
   static_cast<void>(name);  // To prevent 'unused argument' warning.
   return NULL;
@@ -3824,6 +3873,7 @@ GTEST_API_ Int32 Int32FromGTestEnv(const char* flag, Int32 default_val);
 std::string StringFromGTestEnv(const char* flag, const char* default_val);
 
 }  // namespace internal
+
 }  // namespace testing
 
 #endif  // GTEST_INCLUDE_GTEST_INTERNAL_GTEST_PORT_H_
@@ -7910,7 +7960,7 @@ namespace edit_distance {
 // Returns the optimal edits to go from 'left' to 'right'.
 // All edits cost the same, with replace having lower priority than
 // add/remove.
-// Simple implementation of the Wagner–Fischer algorithm.
+// Simple implementation of the Wagner-Fischer algorithm.
 // See http://en.wikipedia.org/wiki/Wagner-Fischer_algorithm
 enum EditType { kMatch, kAdd, kRemove, kReplace };
 GTEST_API_ std::vector<EditType> CalculateOptimalEdits(
@@ -8237,9 +8287,10 @@ typedef void (*SetUpTestCaseFunc)();
 typedef void (*TearDownTestCaseFunc)();
 
 struct CodeLocation {
-  CodeLocation(const string& a_file, int a_line) : file(a_file), line(a_line) {}
+  CodeLocation(const std::string& a_file, int a_line)
+      : file(a_file), line(a_line) {}
 
-  string file;
+  std::string file;
   int line;
 };
 
@@ -8673,6 +8724,31 @@ IsContainer IsContainerTest(int /* dummy */,
 typedef char IsNotContainer;
 template <class C>
 IsNotContainer IsContainerTest(long /* dummy */) { return '\0'; }
+
+template <typename C, bool = 
+  sizeof(IsContainerTest<C>(0)) == sizeof(IsContainer)
+>
+struct IsRecursiveContainerImpl;
+
+template <typename C>
+struct IsRecursiveContainerImpl<C, false> : public false_type {};
+
+template <typename C>
+struct IsRecursiveContainerImpl<C, true> {
+  typedef
+    typename IteratorTraits<typename C::iterator>::value_type
+  value_type;
+  typedef is_same<value_type, C> type;
+};
+
+// IsRecursiveContainer<Type> is a unary compile-time predicate that
+// evaluates whether C is a recursive container type. A recursive container 
+// type is a container type whose value_type is equal to the container type
+// itself. An example for a recursive container type is 
+// boost::filesystem::path, whose iterator has a value_type that is equal to 
+// boost::filesystem::path.
+template<typename C>
+struct IsRecursiveContainer : public IsRecursiveContainerImpl<C>::type {};
 
 // EnableIf<condition>::type is void when 'Cond' is true, and
 // undefined when 'Cond' is false.  To use SFINAE to make a function
@@ -9768,9 +9844,6 @@ TEST_P(DerivedTest, DoesBlah) {
 # include <utility>
 #endif
 
-// scripts/fuse_gtest.py depends on gtest's own header being #included
-// *unconditionally*.  Therefore these #includes cannot be moved
-// inside #if GTEST_HAS_PARAM_TEST.
 // Copyright 2008 Google Inc.
 // All Rights Reserved.
 //
@@ -9814,9 +9887,6 @@ TEST_P(DerivedTest, DoesBlah) {
 #include <utility>
 #include <vector>
 
-// scripts/fuse_gtest.py depends on gtest's own header being #included
-// *unconditionally*.  Therefore these #includes cannot be moved
-// inside #if GTEST_HAS_PARAM_TEST.
 // Copyright 2003 Google Inc.
 // All rights reserved.
 //
@@ -10196,7 +10266,8 @@ class TypeWithoutFormatter {
  public:
   // This default version is called when kTypeKind is kOtherType.
   static void PrintValue(const T& value, ::std::ostream* os) {
-    PrintBytesInObjectTo(reinterpret_cast<const unsigned char*>(&value),
+    PrintBytesInObjectTo(static_cast<const unsigned char*>(
+                             reinterpret_cast<const void *>(&value)),
                          sizeof(value), os);
   }
 };
@@ -10210,10 +10281,10 @@ template <typename T>
 class TypeWithoutFormatter<T, kProtobuf> {
  public:
   static void PrintValue(const T& value, ::std::ostream* os) {
-    const ::testing::internal::string short_str = value.ShortDebugString();
-    const ::testing::internal::string pretty_str =
-        short_str.length() <= kProtobufOneLinerMaxLength ?
-        short_str : ("\n" + value.DebugString());
+    std::string pretty_str = value.ShortDebugString();
+    if (pretty_str.length() > kProtobufOneLinerMaxLength) {
+      pretty_str = "\n" + value.DebugString();
+    }
     *os << ("<" + pretty_str + ">");
   }
 };
@@ -10423,11 +10494,18 @@ class UniversalPrinter;
 template <typename T>
 void UniversalPrint(const T& value, ::std::ostream* os);
 
+enum DefaultPrinterType {
+  kPrintContainer,
+  kPrintPointer,
+  kPrintFunctionPointer,
+  kPrintOther,
+};
+template <DefaultPrinterType type> struct WrapPrinterType {};
+
 // Used to print an STL-style container when the user doesn't define
 // a PrintTo() for it.
 template <typename C>
-void DefaultPrintTo(IsContainer /* dummy */,
-                    false_type /* is not a pointer */,
+void DefaultPrintTo(WrapPrinterType<kPrintContainer> /* dummy */,
                     const C& container, ::std::ostream* os) {
   const size_t kMaxCount = 32;  // The maximum number of elements to print.
   *os << '{';
@@ -10460,40 +10538,38 @@ void DefaultPrintTo(IsContainer /* dummy */,
 // implementation-defined.  Therefore they will be printed as raw
 // bytes.)
 template <typename T>
-void DefaultPrintTo(IsNotContainer /* dummy */,
-                    true_type /* is a pointer */,
+void DefaultPrintTo(WrapPrinterType<kPrintPointer> /* dummy */,
                     T* p, ::std::ostream* os) {
   if (p == NULL) {
     *os << "NULL";
   } else {
-    // C++ doesn't allow casting from a function pointer to any object
-    // pointer.
-    //
-    // IsTrue() silences warnings: "Condition is always true",
-    // "unreachable code".
-    if (IsTrue(ImplicitlyConvertible<T*, const void*>::value)) {
-      // T is not a function type.  We just call << to print p,
-      // relying on ADL to pick up user-defined << for their pointer
-      // types, if any.
-      *os << p;
-    } else {
-      // T is a function type, so '*os << p' doesn't do what we want
-      // (it just prints p as bool).  We want to print p as a const
-      // void*.  However, we cannot cast it to const void* directly,
-      // even using reinterpret_cast, as earlier versions of gcc
-      // (e.g. 3.4.5) cannot compile the cast when p is a function
-      // pointer.  Casting to UInt64 first solves the problem.
-      *os << reinterpret_cast<const void*>(
-          reinterpret_cast<internal::UInt64>(p));
-    }
+    // T is not a function type.  We just call << to print p,
+    // relying on ADL to pick up user-defined << for their pointer
+    // types, if any.
+    *os << p;
+  }
+}
+template <typename T>
+void DefaultPrintTo(WrapPrinterType<kPrintFunctionPointer> /* dummy */,
+                    T* p, ::std::ostream* os) {
+  if (p == NULL) {
+    *os << "NULL";
+  } else {
+    // T is a function type, so '*os << p' doesn't do what we want
+    // (it just prints p as bool).  We want to print p as a const
+    // void*.  However, we cannot cast it to const void* directly,
+    // even using reinterpret_cast, as earlier versions of gcc
+    // (e.g. 3.4.5) cannot compile the cast when p is a function
+    // pointer.  Casting to UInt64 first solves the problem.
+    *os << reinterpret_cast<const void*>(
+        reinterpret_cast<internal::UInt64>(p));
   }
 }
 
 // Used to print a non-container, non-pointer value when the user
 // doesn't define PrintTo() for it.
 template <typename T>
-void DefaultPrintTo(IsNotContainer /* dummy */,
-                    false_type /* is not a pointer */,
+void DefaultPrintTo(WrapPrinterType<kPrintOther> /* dummy */,
                     const T& value, ::std::ostream* os) {
   ::testing_internal::DefaultPrintNonContainerTo(value, os);
 }
@@ -10511,29 +10587,40 @@ void DefaultPrintTo(IsNotContainer /* dummy */,
 // wants).
 template <typename T>
 void PrintTo(const T& value, ::std::ostream* os) {
-  // DefaultPrintTo() is overloaded.  The type of its first two
-  // arguments determine which version will be picked.  If T is an
-  // STL-style container, the version for container will be called; if
-  // T is a pointer, the pointer version will be called; otherwise the
-  // generic version will be called.
+  // DefaultPrintTo() is overloaded.  The type of its first argument
+  // determines which version will be picked.
   //
-  // Note that we check for container types here, prior to we check
-  // for protocol message types in our operator<<.  The rationale is:
+  // Note that we check for recursive and other container types here, prior 
+  // to we check for protocol message types in our operator<<.  The rationale is:
   //
   // For protocol messages, we want to give people a chance to
   // override Google Mock's format by defining a PrintTo() or
   // operator<<.  For STL containers, other formats can be
   // incompatible with Google Mock's format for the container
   // elements; therefore we check for container types here to ensure
-  // that our format is used.
+  // that our format is used. To prevent an infinite runtime recursion
+  // during the output of recursive container types, we check first for
+  // those.
   //
-  // The second argument of DefaultPrintTo() is needed to bypass a bug
-  // in Symbian's C++ compiler that prevents it from picking the right
-  // overload between:
-  //
-  //   PrintTo(const T& x, ...);
-  //   PrintTo(T* x, ...);
-  DefaultPrintTo(IsContainerTest<T>(0), is_pointer<T>(), value, os);
+  // Note that MSVC and clang-cl do allow an implicit conversion from
+  // pointer-to-function to pointer-to-object, but clang-cl warns on it.
+  // So don't use ImplicitlyConvertible if it can be helped since it will
+  // cause this warning, and use a separate overload of DefaultPrintTo for
+  // function pointers so that the `*os << p` in the object pointer overload
+  // doesn't cause that warning either.
+  DefaultPrintTo(
+      WrapPrinterType<
+          (sizeof(IsContainerTest<T>(0)) == sizeof(IsContainer)) && !IsRecursiveContainer<T>::value
+            ? kPrintContainer : !is_pointer<T>::value
+              ? kPrintOther
+#if GTEST_LANG_CXX11
+                : std::is_function<typename std::remove_pointer<T>::type>::value
+#else
+                : !internal::ImplicitlyConvertible<T, const void*>::value
+#endif
+                    ? kPrintFunctionPointer
+                    : kPrintPointer>(),
+      value, os);
 }
 
 // The following list of PrintTo() overloads tells
@@ -10864,7 +10951,7 @@ class UniversalTersePrinter<const char*> {
     if (str == NULL) {
       *os << "NULL";
     } else {
-      UniversalPrint(string(str), os);
+      UniversalPrint(std::string(str), os);
     }
   }
 };
@@ -11091,8 +11178,6 @@ template <typename T>
 #endif  // GTEST_INCLUDE_GTEST_INTERNAL_CUSTOM_GTEST_PRINTERS_H_
 
 #endif  // GTEST_INCLUDE_GTEST_GTEST_PRINTERS_H_
-
-#if GTEST_HAS_PARAM_TEST
 
 namespace testing {
 
@@ -11515,7 +11600,7 @@ class ParameterizedTestCaseInfoBase {
   virtual ~ParameterizedTestCaseInfoBase() {}
 
   // Base part of test case name for display purposes.
-  virtual const string& GetTestCaseName() const = 0;
+  virtual const std::string& GetTestCaseName() const = 0;
   // Test case id to verify identity.
   virtual TypeId GetTestCaseTypeId() const = 0;
   // UnitTest class invokes this method to register tests in this
@@ -11554,7 +11639,7 @@ class ParameterizedTestCaseInfo : public ParameterizedTestCaseInfoBase {
       : test_case_name_(name), code_location_(code_location) {}
 
   // Test case base name for display purposes.
-  virtual const string& GetTestCaseName() const { return test_case_name_; }
+  virtual const std::string& GetTestCaseName() const { return test_case_name_; }
   // Test case id to verify identity.
   virtual TypeId GetTestCaseTypeId() const { return GetTypeId<TestCase>(); }
   // TEST_P macro uses AddTestPattern() to record information
@@ -11572,11 +11657,10 @@ class ParameterizedTestCaseInfo : public ParameterizedTestCaseInfoBase {
   }
   // INSTANTIATE_TEST_CASE_P macro uses AddGenerator() to record information
   // about a generator.
-  int AddTestCaseInstantiation(const string& instantiation_name,
+  int AddTestCaseInstantiation(const std::string& instantiation_name,
                                GeneratorCreationFunc* func,
                                ParamNameGeneratorFunc* name_func,
-                               const char* file,
-                               int line) {
+                               const char* file, int line) {
     instantiations_.push_back(
         InstantiationInfo(instantiation_name, func, name_func, file, line));
     return 0;  // Return value used only to run this method in namespace scope.
@@ -11593,13 +11677,13 @@ class ParameterizedTestCaseInfo : public ParameterizedTestCaseInfoBase {
       for (typename InstantiationContainer::iterator gen_it =
                instantiations_.begin(); gen_it != instantiations_.end();
                ++gen_it) {
-        const string& instantiation_name = gen_it->name;
+        const std::string& instantiation_name = gen_it->name;
         ParamGenerator<ParamType> generator((*gen_it->generator)());
         ParamNameGeneratorFunc* name_func = gen_it->name_func;
         const char* file = gen_it->file;
         int line = gen_it->line;
 
-        string test_case_name;
+        std::string test_case_name;
         if ( !instantiation_name.empty() )
           test_case_name = instantiation_name + "/";
         test_case_name += test_info->test_case_base_name;
@@ -11652,8 +11736,8 @@ class ParameterizedTestCaseInfo : public ParameterizedTestCaseInfoBase {
         test_base_name(a_test_base_name),
         test_meta_factory(a_test_meta_factory) {}
 
-    const string test_case_base_name;
-    const string test_base_name;
+    const std::string test_case_base_name;
+    const std::string test_base_name;
     const scoped_ptr<TestMetaFactoryBase<ParamType> > test_meta_factory;
   };
   typedef ::std::vector<linked_ptr<TestInfo> > TestInfoContainer;
@@ -11694,7 +11778,7 @@ class ParameterizedTestCaseInfo : public ParameterizedTestCaseInfoBase {
     return true;
   }
 
-  const string test_case_name_;
+  const std::string test_case_name_;
   CodeLocation code_location_;
   TestInfoContainer tests_;
   InstantiationContainer instantiations_;
@@ -11769,8 +11853,6 @@ class ParameterizedTestCaseRegistry {
 }  // namespace internal
 }  // namespace testing
 
-#endif  //  GTEST_HAS_PARAM_TEST
-
 #endif  // GTEST_INCLUDE_GTEST_INTERNAL_GTEST_PARAM_UTIL_H_
 // This file was GENERATED by command:
 //     pump.py gtest-param-util-generated.h.pump
@@ -11820,11 +11902,6 @@ class ParameterizedTestCaseRegistry {
 #ifndef GTEST_INCLUDE_GTEST_INTERNAL_GTEST_PARAM_UTIL_GENERATED_H_
 #define GTEST_INCLUDE_GTEST_INTERNAL_GTEST_PARAM_UTIL_GENERATED_H_
 
-// scripts/fuse_gtest.py depends on gtest's own header being #included
-// *unconditionally*.  Therefore these #includes cannot be moved
-// inside #if GTEST_HAS_PARAM_TEST.
-
-#if GTEST_HAS_PARAM_TEST
 
 namespace testing {
 
@@ -16913,11 +16990,7 @@ CartesianProductHolder10(const Generator1& g1, const Generator2& g2,
 }  // namespace internal
 }  // namespace testing
 
-#endif  //  GTEST_HAS_PARAM_TEST
-
 #endif  // GTEST_INCLUDE_GTEST_INTERNAL_GTEST_PARAM_UTIL_GENERATED_H_
-
-#if GTEST_HAS_PARAM_TEST
 
 namespace testing {
 
@@ -18164,8 +18237,6 @@ internal::CartesianProductHolder10<Generator1, Generator2, Generator3,
 
 }  // namespace testing
 
-#endif  // GTEST_HAS_PARAM_TEST
-
 #endif  // GTEST_INCLUDE_GTEST_GTEST_PARAM_TEST_H_
 // Copyright 2006, Google Inc.
 // All rights reserved.
@@ -18643,9 +18714,10 @@ INSTANTIATE_TYPED_TEST_CASE_P(My, FooTest, MyTypes);
   namespace GTEST_CASE_NAMESPACE_(CaseName) { \
   typedef ::testing::internal::Templates<__VA_ARGS__>::type gtest_AllTests_; \
   } \
-  static const char* const GTEST_REGISTERED_TEST_NAMES_(CaseName) = \
-      GTEST_TYPED_TEST_CASE_P_STATE_(CaseName).VerifyRegisteredTestNames(\
-          __FILE__, __LINE__, #__VA_ARGS__)
+  static const char* const GTEST_REGISTERED_TEST_NAMES_(CaseName) \
+      GTEST_ATTRIBUTE_UNUSED_ = \
+          GTEST_TYPED_TEST_CASE_P_STATE_(CaseName).VerifyRegisteredTestNames(\
+              __FILE__, __LINE__, #__VA_ARGS__)
 
 // The 'Types' template argument below must have spaces around it
 // since some compilers may choke on '>>' when passing a template
@@ -19779,14 +19851,12 @@ class GTEST_API_ UnitTest {
   // Returns the random seed used at the start of the current test run.
   int random_seed() const;
 
-#if GTEST_HAS_PARAM_TEST
   // Returns the ParameterizedTestCaseRegistry object used to keep track of
   // value-parameterized tests and instantiate and register them.
   //
   // INTERNAL IMPLEMENTATION - DO NOT USE IN A USER PROGRAM.
   internal::ParameterizedTestCaseRegistry& parameterized_test_registry()
       GTEST_LOCK_EXCLUDED_(mutex_);
-#endif  // GTEST_HAS_PARAM_TEST
 
   // Gets the number of successful test cases.
   int successful_test_case_count() const;
@@ -19886,7 +19956,7 @@ class GTEST_API_ UnitTest {
   internal::UnitTestImpl* impl() { return impl_; }
   const internal::UnitTestImpl* impl() const { return impl_; }
 
-  // These classes and funcions are friends as they need to access private
+  // These classes and functions are friends as they need to access private
   // members of UnitTest.
   friend class Test;
   friend class internal::AssertHelper;
@@ -19987,11 +20057,9 @@ AssertionResult CmpHelperEQ(const char* lhs_expression,
                             const char* rhs_expression,
                             const T1& lhs,
                             const T2& rhs) {
-GTEST_DISABLE_MSC_WARNINGS_PUSH_(4389 /* signed/unsigned mismatch */)
   if (lhs == rhs) {
     return AssertionSuccess();
   }
-GTEST_DISABLE_MSC_WARNINGS_POP_()
 
   return CmpHelperEQFailure(lhs_expression, rhs_expression, lhs, rhs);
 }
@@ -20305,7 +20373,6 @@ class GTEST_API_ AssertHelper {
 
 }  // namespace internal
 
-#if GTEST_HAS_PARAM_TEST
 // The pure interface class that all value-parameterized tests inherit from.
 // A value-parameterized class must inherit from both ::testing::Test and
 // ::testing::WithParamInterface. In most cases that just means inheriting
@@ -20382,7 +20449,6 @@ template <typename T>
 class TestWithParam : public Test, public WithParamInterface<T> {
 };
 
-#endif  // GTEST_HAS_PARAM_TEST
 
 // Macros for indicating success/failure in test code.
 
@@ -21150,7 +21216,7 @@ bool StaticAssertTypeEq() {
 // name of the test within the test case.
 //
 // A test fixture class must be declared earlier.  The user should put
-// his test code between braces after using this macro.  Example:
+// the test code between braces after using this macro.  Example:
 //
 //   class FooTest : public testing::Test {
 //    protected:
@@ -21172,6 +21238,10 @@ bool StaticAssertTypeEq() {
 #define TEST_F(test_fixture, test_name)\
   GTEST_TEST_(test_fixture, test_name, test_fixture, \
               ::testing::internal::GetTypeId<test_fixture>())
+
+// Returns a path to temporary directory.
+// Tries to determine an appropriate directory for the platform.
+GTEST_API_ std::string TempDir();
 
 }  // namespace testing
 
