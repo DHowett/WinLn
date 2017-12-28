@@ -52,6 +52,8 @@ __declspec(noreturn) static void WlnAbortWithUsage() {
 		L"  -t, --target-directory=<directory>  specify the <directory> in which to create links\r\n"
 		L"  -T, --no-target-directory           never treat <link> as a directory\r\n"
 		L"\r\n"
+		L"  -v, --verbose                       print the name of each linked file\r\n"
+		L"\r\n"
 		L"  -h, --help         display this help\r\n"
 		, WlnGetProgName().c_str()
 		, WlnGetProgName().c_str()
@@ -167,13 +169,14 @@ static option opts[]{
 	{L"help", L'h', false},
 	{L"no-target-directory", L'T', false},
 	{L"target-directory", L't', true},
+	{L"verbose", L'v', false},
 	{nullptr, 0, false},
 };
 
-static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& target, std::wstring link, bool force, bool relative, const std::optional<WIN32_FILE_ATTRIBUTE_DATA>& linkFileInfo = {});
+static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& target, std::wstring link, bool force, bool relative, bool verbose, const std::optional<WIN32_FILE_ATTRIBUTE_DATA>& linkFileInfo = {});
 
 int wmain(int argc, wchar_t** argv) {
-	bool force = false, relative = false;
+	bool force = false, relative = false, verbose = false;
 	DirOption diropt = DirOptionTargetDontCare;
 	LinkType linktyp = LinkTypeHard;
 	std::optional<std::wstring> linkname;
@@ -206,6 +209,9 @@ int wmain(int argc, wchar_t** argv) {
 			if(diropt == DirOptionTargetIsFile) WlnAbortWithArgumentError(L"cannot use --target-directory= with --no-target-directory");
 			diropt = DirOptionTargetIsDir;
 			linkname.emplace(optarg);
+			break;
+		case 'v':
+			verbose = true;
 			break;
 		}
 	}
@@ -261,7 +267,7 @@ opts_done:
 	}
 
 	for(const auto& target : targets) {
-		WlnCreateLink(linktyp, diropt, target, finalLinkname, force, relative, linkFi);
+		WlnCreateLink(linktyp, diropt, target, finalLinkname, force, relative, verbose, linkFi);
 	}
 
 	return 0;
@@ -327,7 +333,7 @@ static void WlnCreateJunction(const std::wstring& target, const std::wstring& li
 	CloseHandle(hFile);
 }
 
-static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& target, std::wstring link, bool force, bool relative, const std::optional<WIN32_FILE_ATTRIBUTE_DATA>& linkFileInfo) {
+static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& target, std::wstring link, bool force, bool relative, bool verbose, const std::optional<WIN32_FILE_ATTRIBUTE_DATA>& linkFileInfo) {
 	if(linkFileInfo && diropt != DirOptionTargetIsFile && WlnIsDirectory(linkFileInfo.value())) {
 		link += L"\\" + WlnGetFilename(WlnMakePathAbsolute(target));
 	}
@@ -355,6 +361,10 @@ static void WlnCreateLink(LinkType type, DirOption diropt, const std::wstring& t
 		} else {
 			DeleteFileW(link.c_str());
 		}
+	}
+
+	if(verbose) {
+		fwprintf(stderr, L"`%ls' -> `%ls'\r\n", link.c_str(), target.c_str());
 	}
 
 	switch(type) {
